@@ -1,0 +1,42 @@
+td3:
+    gamma: 0.99
+    ployak: 0.995
+    delay_num: 2
+    noise_type: gaussian # ou or gaussian
+    gaussian_noise_sigma: 0.2 # if using gaussian noise, specify the variance of gaussian distribution
+    gaussian_noise_bound: 0.2 # if using gaussian noise, specify the clipping bound of sampled noise, noise must in range of [-bound, bound]
+    actor_lr: 5.0e-4
+    critic_lr: 1.0e-3
+    share_visual_net: true
+    discrete_tau: 1.0 
+    batch_size: 128
+    buffer_size: 100000
+    use_priority: false
+    n_step: true
+    hidden_units:
+        actor_continuous: [64, 64]
+        actor_discrete: [64, 64]
+        q: [64, 64]
+
+sac:
+    alpha: 0.2
+    auto_adaption: true
+    log_std_bound: [-20, 2]
+    actor_lr: 5.0e-4
+    critic_lr: 1.0e-3
+    alpha_lr: 5.0e-4
+    share_visual_net: true
+    gamma: 0.99
+    ployak: 0.995
+    discrete_tau: 1.0
+    batch_size: 128
+    buffer_size: 100000
+    use_priority: false
+    n_step: true
+    hidden_units:
+        actor_continuous:
+            share: [64, 64]
+            mu: [64]
+            log_std: [64]
+        actor_discrete: [64, 64]
+        q: [64, 64]
