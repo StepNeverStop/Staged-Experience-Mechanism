@@ -7,8 +7,8 @@ from abc import ABC, abstractmethod
 
 class ReplayBuffer(ABC):
     def __init__(self, batch_size, capacity):
-        assert isinstance(batch_size, int) and batch_size > 0, 'batch_size must be int and larger than 0'
-        assert isinstance(capacity, int) and capacity > 0, 'capacity must be int and larger than 0'
+        assert isinstance(batch_size, int) and batch_size >= 0, 'batch_size must be int and larger than 0'
+        assert isinstance(capacity, int) and capacity >= 0, 'capacity must be int and larger than 0'
         self.batch_size = batch_size
         self.capacity = capacity
         self._size = 0
@@ -28,7 +28,7 @@ class ReplayBuffer(ABC):
         pass
 
 
-class QuantileExperienceReplay(ReplayBuffer):
+class StagedExperienceMechanism(ReplayBuffer):
     def __init__(self, batch_size, capacity, n, cof, gamma, agents_num=12):
         super().__init__(batch_size, capacity)
         self._data_pointer = [i for i in range(capacity)]
@@ -243,33 +243,39 @@ class PrioritizedExperienceReplay(ReplayBuffer):
         self.tree.add_batch(np.full(num, self.max_p), data)
         self._size = min(self._size + num, self.capacity)
 
-    def sample(self):
+    def sample(self, return_index=False):
         '''
         output: weights, [ss, visual_ss, as, rs, s_s, visual_s_s, dones]
         '''
         n_sample = self.batch_size if self.is_lg_batch_size else self._size
-        all_intervals = np.linspace(0, self.tree.total, n_sample)
+        all_intervals = np.linspace(0, self.tree.total, n_sample+1)
         ps = np.random.uniform(all_intervals[:-1], all_intervals[1:])
-        self.last_indexs, data_indx, p, data = self.tree.get_batch_parallel(ps)
+        idxs, data_indx, p, data = self.tree.get_batch_parallel(ps)
+        self.last_indexs = idxs
         _min_p = self.min_p if self.global_v else p.min()
         self.IS_w = np.power(_min_p / p, self.beta)
-        return data
+        if return_index:
+            return data, idxs
+        else:
+            return data
 
     @property
     def is_lg_batch_size(self):
         return self._size > self.batch_size
 
-    def update(self, priority, episode):
+    def update(self, priority, episode, index=None):
         '''
         input: priorities
         '''
         assert hasattr(priority, '__len__'), 'priority must have attribute of len()'
-        assert len(priority) == len(self.last_indexs), 'length between priority and last_indexs must equal'
+        idxs = index if index is not None else self.last_indexs
+        assert len(priority) == len(idxs), 'length between priority and last_indexs must equal'
         self.beta += self.beta_interval * episode
         priority = np.power(np.abs(priority) + self.epsilon, self.alpha)
         self.min_p = min(self.min_p, priority.min())
         self.max_p = max(self.max_p, priority.max())
-        [self.tree._updatetree(idx, p) for idx, p in zip(self.last_indexs, priority)]
+        self.tree._updatetree_batch(idxs, priority)
+        # [self.tree._updatetree(idx, p) for idx, p in zip(idxs, priority)]
 
     def get_IS_w(self):
         return self.IS_w

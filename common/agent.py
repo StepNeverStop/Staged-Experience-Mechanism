@@ -42,7 +42,7 @@ def get_buffer(buffer_args: Config):
         from utils.replay_buffer import NStepExperienceReplay as Buffer
     elif buffer_args['type'] == 'SEM':
         print('SEM')
-        from utils.replay_buffer import QuantileExperienceReplay as Buffer
+        from utils.replay_buffer import StagedExperienceMechanism as Buffer
     elif buffer_args['type'] == 'NstepPER':
         print('NstepPER')
         from utils.replay_buffer import NStepPrioritizedExperienceReplay as Buffer
