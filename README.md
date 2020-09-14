@@ -1,5 +1,7 @@
 # Staged Experience Mechanism (SEM)
 
+This repository is the source code of paper *SEM: Adaptive Staged Experience Access Mechanism for Reinforcement Learning* of **ICTAI 2020**.
+
 ## Getting started
 
 ```python

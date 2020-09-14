@@ -204,26 +204,39 @@ class PrioritizedExperienceReplay(ReplayBuffer):
     This PER will introduce some bias, 'cause when the experience with the minimum probability has been collected, the min_p that be updated may become inaccuracy.
     '''
 
-    def __init__(self, batch_size, capacity, max_episode, alpha, beta, epsilon, global_v):
+    def __init__(self,
+                 batch_size: int,
+                 capacity: int,
+                 max_train_step: int,
+                 alpha: float,
+                 beta: float,
+                 epsilon: float,
+                 global_v: bool):
         '''
         inputs:
-            max_episode: use for calculating the decay interval of beta
+            max_train_step: use for calculating the decay interval of beta
             alpha: control sampling rule, alpha -> 0 means uniform sampling, alpha -> 1 means complete td_error sampling
             beta: control importance sampling ratio, beta -> 0 means no IS, beta -> 1 means complete IS.
             epsilon: a small positive number that prevents td-error of 0 from never being replayed.
             global_v: whether using the global
         '''
-        assert epsilon > 0, 'episode must larger than zero'
+        assert epsilon > 0, 'epsilon must larger than zero'
         super().__init__(batch_size, capacity)
-        self.alpha = alpha
-        self.beta = beta
-        self.beta_interval = (1 - beta) / max_episode
         self.tree = Sum_Tree(capacity)
+        self.alpha = alpha
+        self.beta = self.init_beta = beta
+        self.beta_interval = (1. - beta) / max_train_step
         self.epsilon = epsilon
         self.IS_w = 1   # weights of variables by using Importance Sampling
-        self.min_p = 1
-        self.max_p = epsilon
         self.global_v = global_v
+        self.reset()
+
+    def reset(self):
+        self.tree.reset()
+        super().reset()
+        self.beta = self.init_beta
+        self.min_p = sys.maxsize
+        self.max_p = np.power(self.epsilon, self.alpha)
 
     def add(self, *args):
         '''
@@ -243,34 +256,56 @@ class PrioritizedExperienceReplay(ReplayBuffer):
         self.tree.add_batch(np.full(num, self.max_p), data)
         self._size = min(self._size + num, self.capacity)
 
+    def apex_add_batch(self, td_error, *args):
+        data = list(zip(*args))
+        num = len(data)
+        prios = np.power(np.abs(td_error) + self.epsilon, self.alpha)
+        self.tree.add_batch(prios, data)
+        self._size = min(self._size + num, self.capacity)
+
     def sample(self, return_index=False):
         '''
         output: weights, [ss, visual_ss, as, rs, s_s, visual_s_s, dones]
         '''
         n_sample = self.batch_size if self.is_lg_batch_size else self._size
-        all_intervals = np.linspace(0, self.tree.total, n_sample+1)
+        all_intervals = np.linspace(0, self.tree.total, n_sample + 1)
         ps = np.random.uniform(all_intervals[:-1], all_intervals[1:])
         idxs, data_indx, p, data = self.tree.get_batch_parallel(ps)
         self.last_indexs = idxs
-        _min_p = self.min_p if self.global_v else p.min()
+        _min_p = self.min_p if self.global_v and self.min_p < sys.maxsize else p.min()
         self.IS_w = np.power(_min_p / p, self.beta)
         if return_index:
             return data, idxs
         else:
             return data
 
+    def get_all(self, return_index=False):
+        idxs, data_indx, p, data = self.tree.get_all()
+        self.last_indexs = idxs
+        _min_p = self.min_p if self.global_v and self.min_p < sys.maxsize else p.min()
+        self.IS_w = np.power(_min_p / p, self.beta)
+        if return_index:
+            return data, idxs
+        else:
+            return data
+
+    def get_all_exps(self):
+        return self.tree.get_all_exps()
+
     @property
     def is_lg_batch_size(self):
         return self._size > self.batch_size
 
-    def update(self, priority, episode, index=None):
+    def update(self,
+               priority,
+               index=None):
         '''
         input: priorities
         '''
         assert hasattr(priority, '__len__'), 'priority must have attribute of len()'
         idxs = index if index is not None else self.last_indexs
         assert len(priority) == len(idxs), 'length between priority and last_indexs must equal'
-        self.beta += self.beta_interval * episode
+        self.beta = min(self.beta + self.beta_interval, 1.)
         priority = np.power(np.abs(priority) + self.epsilon, self.alpha)
         self.min_p = min(self.min_p, priority.min())
         self.max_p = max(self.max_p, priority.max())
@@ -279,6 +314,10 @@ class PrioritizedExperienceReplay(ReplayBuffer):
 
     def get_IS_w(self):
         return self.IS_w
+
+    @property
+    def size(self):
+        return self._size
 
 
 class NStepWrapper:

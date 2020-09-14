@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import numpy as np
 
 
@@ -6,7 +9,7 @@ class Sum_Tree(object):
         """
         capacity = 5，设置经验池大小
         tree = [0,1,2,3,4,5,6,7,8,9,10,11,12] 8-12存放叶子结点p值，1-7存放父节点、根节点p值的和，0存放树节点的数量
-        data = [0,1,2,3,4,5] 1-5存放数据， 0存放capacity
+        data = [0,1,2,3,4] 0-4存放数据
         Tree structure and array storage:
         Tree index:
                     1         -> storing priority sum
@@ -18,43 +21,42 @@ class Sum_Tree(object):
         8   9 10   11 12                   -> storing priority for transitions
         """
         assert capacity > 0, 'capacity must larger than zero'
-        self.now = 0
         self.capacity = capacity
         self.parent_node_count = self.get_parent_node_count(capacity)
-        # print(self.parent_node_count)
-        self.tree = np.zeros(self.parent_node_count + capacity + 1)
-        self.tree[0] = len(self.tree) - 1
-        self.data = np.zeros(capacity + 1, dtype=object)
-        self.data[0] = capacity
+        self.tree_data_offset = self.parent_node_count + 1
+        # print(self.parent_node_count, self.tree_data_offset)
+        self.reset()
+
+    def reset(self):
+        self.now = 0
+        self._size = 0
+        self.tree = np.zeros(self.tree_data_offset + self.capacity)
+        self.tree[0] = len(self.tree) - 1   # 树的总节点数，也是最后一个节点的索引值
+        self.data = np.zeros(self.capacity, dtype=object)
 
     def add(self, p, data):
         """
         p : property
         data : [s, a, r, s_, done]
         """
-        idx = self.now + 1
-        self.data[idx] = data
-        tree_index = idx + self.parent_node_count
+        self.data[self.now] = data
+        tree_index = self.now + self.tree_data_offset
         self._updatetree(tree_index, p)
-        if idx >= self.capacity:
-            self.now = 0
-        else:
-            self.now = idx
+        self.now = (self.now + 1) % self.capacity
+        self._size = min(self._size + 1, self.capacity)
 
     def add_batch(self, p, data):
         """
         p : property
-        data : [s, a, r, s_, done]
+        data : [[s, a, r, s_, done], ...]
         """
         num = len(data)
-        idx = (np.arange(num) + self.now) % self.capacity + 1   # [1, capacity]
+        idx = (np.arange(num) + self.now) % self.capacity   # [0, capacity-1]
         self.data[idx] = data
-        tree_index = idx + self.parent_node_count
+        tree_index = idx + self.tree_data_offset
         self._updatetree_batch(tree_index, p)
-        if idx[-1] >= self.capacity:
-            self.now = 0
-        else:
-            self.now = idx[-1]
+        self.now = (idx[-1] + 1) % self.capacity
+        self._size = min(self._size + num, self.capacity)
 
     def _updatetree(self, tree_index, p):
         diff = p - self.tree[tree_index]
@@ -91,7 +93,7 @@ class Sum_Tree(object):
         seg_p_total : The value of priority to sample
         """
         tree_index = self._retrieve(1, seg_p_total)
-        data_index = tree_index - self.parent_node_count
+        data_index = tree_index - self.tree_data_offset
         return (tree_index, data_index, self.tree[tree_index], self.data[data_index])
 
     def get_batch(self, ps):
@@ -105,12 +107,27 @@ class Sum_Tree(object):
         assert isinstance(ps, (list, np.ndarray))
         init_idx = np.full(len(ps), 1)
         tidx = self._retrieve_batch(init_idx, ps)
-        didx = tidx - self.parent_node_count
+        didx = tidx - self.tree_data_offset
         p = self.tree[tidx]
         d = self.data[didx]
         tidx, didx, p, d = map(np.asarray, [tidx, didx, p, d])
         d = [np.asarray(e) for e in zip(*d)]    # [[s, a], [s, a]] => [[s, s], [a, a]]
         return (tidx, didx, p, d)
+
+    def get_all(self):
+        assert self._size > 0, 'no data in buffer now.'
+        didx = np.arange(self._size)
+        tidx = didx + self.tree_data_offset
+        p = self.tree[tidx]
+        d = self.data[didx]
+        tidx, didx, p, d = map(np.asarray, [tidx, didx, p, d])
+        d = [np.asarray(e) for e in zip(*d)]    # [[s, a], [s, a]] => [[s, s], [a, a]]
+        return (tidx, didx, p, d)
+
+    def get_all_exps(self):
+        d = self.data[:self._size]
+        d = [np.asarray(e) for e in zip(*d)]
+        return d
 
     def _retrieve(self, tree_index, seg_p_total):
         left = 2 * tree_index
@@ -129,7 +146,7 @@ class Sum_Tree(object):
             return tree_index
         # index = np.where(self.tree[left] >= seg_p_total, left, 0) + np.where(self.tree[left] < seg_p_total, right, 0)
         # seg_p_total = np.where(self.tree[left] >= seg_p_total, seg_p_total, 0) + np.where(self.tree[left] < seg_p_total, seg_p_total - self.tree[left], 0)
-        index = np.where(seg_p_total < self.tree[left] , left, right)
+        index = np.where(seg_p_total < self.tree[left], left, right)
         seg_p_total = np.where(seg_p_total < self.tree[left], seg_p_total, seg_p_total - self.tree[left])
         return self._retrieve_batch(index, seg_p_total)
 
@@ -149,26 +166,58 @@ class Sum_Tree(object):
 
 
 if __name__ == "__main__":
-    # from time import time
-    # x = 0
-    # t = 1000
-    # for i in range(t):
-    #     tree = Sum_Tree(524288)
-    #     a = np.arange(50000)
-    #     b = np.zeros_like(a)
-    #     start = time()
-    #     tree.add_batch(b, a)
-    #     x += time() - start
-    # print(x / t)
+    from time import time
+    t = 10
+    init_times = []
+    sample_times = []
+    update_times = []
 
-    tree = Sum_Tree(20)
-    tree.add_batch(p=np.arange(10)+1, data=np.ones(10))
-    tree.pp()
-    tree._updatetree_batch(np.array([32, 32, 34]), np.array([10, 11, 12]))
-    # [tree._updatetree(i, p) for i, p  in zip(np.array([32, 32, 34]), np.array([10, 11, 12]))]
-    tree.pp()
+    for i in range(t):
+        tree = Sum_Tree(524288)
+        # [[s, a], [s, a], ...524288]
+        a = [[[1, 2], [3]] for _ in range(524288)]
+        b = np.arange(524288) + 1
+        start = time()
+        tree.add_batch(b, a)
+        init_times.append(time() - start)
 
-    # all_intervals = np.linspace(0, tree.total, 4+1)
-    # print(all_intervals)
-    # ps = np.random.uniform(all_intervals[:-1], all_intervals[1:])
-    # print(tree.get_batch_parallel(ps))
+        all_intervals = np.linspace(0, tree.total, 1024 + 1)
+        ps = np.random.uniform(all_intervals[:-1], all_intervals[1:])
+        start = time()
+        tree.get_batch_parallel(ps)
+        sample_times.append(time() - start)
+
+        start = time()
+        tree._updatetree_batch(np.random.randint(0, 524288, 1024), np.random.randint(0, 20, 1024))
+        update_times.append(time() - start)
+
+    # 0.24790284633636475 0.0028038501739501955 0.0010003089904785157
+    print(np.asarray(init_times).mean(), np.asarray(sample_times).mean(), np.asarray(update_times).mean())
+
+    init_times = []
+    sample_times = []
+    update_times = []
+
+    for i in range(t):
+        tree = Sum_Tree(524288)
+        # [[s, a], [s, a], ...524288]
+        a = [[[1, 2], [3]] for _ in range(524288)]
+        b = np.arange(524288) + 1
+        start = time()
+        for _a, _b in zip(a, b):
+            tree.add(_b, _a)
+        init_times.append(time() - start)
+
+        all_intervals = np.linspace(0, tree.total, 1024 + 1)
+        ps = np.random.uniform(all_intervals[:-1], all_intervals[1:])
+        start = time()
+        tree.get_batch(ps)
+        sample_times.append(time() - start)
+
+        start = time()
+        for _i, _p in zip(np.random.randint(0, 524288, 1024), np.random.randint(0, 20, 1024)):
+            tree._updatetree(_i, _p)
+        update_times.append(time() - start)
+
+    # 5.809855628013611 0.01910092830657959 0.017893266677856446
+    print(np.asarray(init_times).mean(), np.asarray(sample_times).mean(), np.asarray(update_times).mean())
