@@ -35,7 +35,22 @@ Options:
     --gym-env-seed=<n>          Specify random seed for gym environment [default: 0]
     --render-episode=<n>        Specify when the gym environment starts rendering [default: None]
     --info=<str>                Write a description of the training, wrapped in double quotation marks [default: None]
+    --sem                       Whether to use SEM or not [default: False]
 Example:
     python run.py --gym --gym-env Hopper-v2 -a td3 -n test --seed 0
 """
+```
+
+## Usage
+
+Train with SEM: 
+```python
+python run.py --gym --gym-env [env_id] -a [algo_name] -n [training_name] --sem
+```
+
+Inference Policies:
+
+```python
+python run.py --gym --gym-env [env_id] -a [algo_name] -n [training_name] -i
+```
 
