@@ -107,12 +107,12 @@ class StagedExperienceMechanism(ReplayBuffer):
         s, visual_s, a, r, s_, visual_s_, done, qr = [np.asarray(e) for e in zip(*t)]
         qr = np.abs(qr - self._mean)
         if qr.max() == 0:
-            p = qr
+            _idx = idx
         else:
-            p = (1 - qr / qr.max())   # [0, 1] 与当前阶段均值差别越大，越小概率被替换，保留差值较大的经验
-        p = p ** (self.cof*self.fluct) - 0.5
-        rand = np.random.rand()
-        _idx = idx[np.where((p + rand) > 1.)[0]]
+            p = (1 - qr / qr.max())   # [0, 1] 与当前阶段均值差别越大，越小概率被替换，保留差值较大的经验   probability of being replaced
+            p = p ** (self.cof*self.fluct) - 0.5
+            rand = np.random.rand()
+            _idx = idx[np.where((p + rand) > 1.)[0]]
         for i in _idx:
             l = len(self.rec)
             self.rec.add(i)
